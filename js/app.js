@@ -40,7 +40,8 @@
     try {
       const { data: { session }, error: sessionError } = await window.supabaseClient.auth.getSession();
       if (sessionError || !session) return null;
-
+      const { data } = await supabase.auth.getUser();
+console.log(data.user.id);  
       const { data: profile, error: profileError } = await window.supabaseClient
         .from('users')
         .select('id, email, role, name')
