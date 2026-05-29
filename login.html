@@ -221,25 +221,24 @@
     btnLogin.disabled = true;
 
     try {
-      const { data, error } = await window.supabaseClient.auth.signInWithPassword({
-        email,
-        password
-      });
+const { data, error } = await window.supabaseClient.auth.signInWithPassword({
+  email,
+  password
+});
 
-      if (error) {
-        throw error;
-      }
+if (error) throw error;
 
-      // users 테이블에서 role 조회
-      const { data: profile, error: profileErr } = await window.supabaseClient
-        .from('users')
-        .select('role, name')
-        .eq('id', data.user.id)
-        .single();
+const user = data.user;
 
-      if (profileErr || !profile) {
-        throw new Error('사용자 프로필을 불러오지 못했습니다.');
-      }
+const { data: profile, error: profileErr } = await window.supabaseClient
+  .from('users')
+  .select('role, name')
+  .eq('id', user.id)
+  .maybeSingle();
+
+if (profileErr || !profile) {
+  throw new Error('사용자 프로필을 불러오지 못했습니다.');
+}
 
       window.location.replace(profile.role === 'admin' ? '/admin.html' : '/worker.html');
 
@@ -294,13 +293,13 @@
         // users 테이블에 직접 upsert (RLS 정책 필요)
         // Auth 트리거가 없는 경우를 위한 수동 insert
         const { error: insertErr } = await window.supabaseClient
-          .from('users')
-          .upsert({
-            id: data.user.id,
-            email: email,
-            name: name,
-            role: role
-          }, { onConflict: 'id' });
+          await supabase.auth.signUp({
+  email,
+  password,
+  options: {
+    data: { name, role }
+  }
+});
 
         if (insertErr) {
           console.warn('[signup] users insert 오류 (트리거가 있으면 무시):', insertErr.message);
