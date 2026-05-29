@@ -292,14 +292,18 @@ if (profileErr || !profile) {
       if (data.user) {
         // users 테이블에 직접 upsert (RLS 정책 필요)
         // Auth 트리거가 없는 경우를 위한 수동 insert
-        const { error: insertErr } = await window.supabaseClient
-          await supabase.auth.signUp({
+        const { data, error } = await window.supabaseClient.auth.signUp({
   email,
   password,
   options: {
-    data: { name, role }
+    data: {
+      name,
+      role
+    }
   }
 });
+
+if (error) throw error;
 
         if (insertErr) {
           console.warn('[signup] users insert 오류 (트리거가 있으면 무시):', insertErr.message);
