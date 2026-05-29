@@ -199,11 +199,11 @@
     await new Promise(r => setTimeout(r, 200));
     if (!window.supabaseClient) return;
 
-    const result = await window.getSessionAndProfile();
-    if (result) {
-      const { profile } = result;
-      window.location.replace(profile.role === 'admin' ? '/admin.html' : '/worker.html');
-    }
+    const { data: profile } = await supabase
+  .from('users')
+  .select('role, name')
+  .eq('id', user.id)
+  .single();
   })();
 
   // ─── 로그인 ───────────────────────────────────
@@ -221,23 +221,24 @@
     btnLogin.disabled = true;
 
     try {
-const { data, error } = await window.supabaseClient.auth.signInWithPassword({
+const { data, error } = await supabase.auth.signUp({
   email,
   password
 });
 
 if (error) throw error;
 
-const user = data.user;
+await supabase.from('users').insert([
+  {
+    id: data.user.id,
+    email,
+    name,
+    role
+  }
+]);
 
-const { data: profile, error: profileErr } = await window.supabaseClient
-  .from('users')
-  .select('role, name')
-  .eq('id', user.id)
-  .maybeSingle();
-
-if (profileErr || !profile) {
-  throw new Error('사용자 프로필을 불러오지 못했습니다.');
+if (insertErr) {
+  console.warn('[signup] users insert 실패:', insertErr.message);
 }
 
       window.location.replace(profile.role === 'admin' ? '/admin.html' : '/worker.html');
