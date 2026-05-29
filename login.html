@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0a0a0f" />
   <meta name="mobile-web-app-capable" content="yes">
-  <title>로그인 — 근태관리</title>
+  <title>근태관리 로그인</title>
 
   <link rel="stylesheet" href="./css/style.css" />
 
@@ -19,115 +19,122 @@
 
 <body>
 
-<div class="login-page">
+<div style="max-width:400px;margin:50px auto;font-family:sans-serif;">
 
-  <!-- LOGIN -->
-  <div class="login-section">
-    <h2>로그인</h2>
+  <h2>로그인</h2>
 
-    <input id="login-email" type="email" placeholder="이메일" />
-    <input id="login-password" type="password" placeholder="비밀번호" />
-
-    <button id="btn-login">로그인</button>
-    <div id="login-error" style="color:red;"></div>
-  </div>
+  <input id="login-email" type="email" placeholder="이메일" />
+  <input id="login-password" type="password" placeholder="비밀번호" />
+  <button id="btn-login">로그인</button>
+  <div id="login-error" style="color:red;"></div>
 
   <hr />
 
-  <!-- SIGNUP -->
-  <div class="login-section">
-    <h2>회원가입</h2>
+  <h2>회원가입</h2>
 
-    <input id="signup-name" type="text" placeholder="이름" />
-    <input id="signup-email" type="email" placeholder="이메일" />
-    <input id="signup-password" type="password" placeholder="비밀번호 (6자 이상)" />
+  <input id="signup-name" type="text" placeholder="이름" />
+  <input id="signup-email" type="email" placeholder="이메일" />
+  <input id="signup-password" type="password" placeholder="비밀번호 (6자 이상)" />
 
-    <select id="signup-role">
-      <option value="worker">근무자</option>
-      <option value="admin">관리자</option>
-    </select>
+  <select id="signup-role">
+    <option value="worker">근무자</option>
+    <option value="admin">관리자</option>
+  </select>
 
-    <button id="btn-signup">회원가입</button>
-    <div id="signup-error" style="color:red;"></div>
-    <div id="signup-success" style="color:green;"></div>
-  </div>
+  <button id="btn-signup">회원가입</button>
+
+  <div id="signup-error" style="color:red;"></div>
+  <div id="signup-success" style="color:green;"></div>
 
 </div>
 
 <script>
-const $ = (id) => document.getElementById(id);
+const supabase = window.supabaseClient;
 
-/* ---------------- LOGIN ---------------- */
-$("btn-login").addEventListener("click", async () => {
-  $("login-error").textContent = "";
+/* =========================
+   LOGIN
+========================= */
+document.getElementById("btn-login").addEventListener("click", async () => {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
 
-  const email = $("login-email").value.trim();
-  const password = $("login-password").value;
+  const errBox = document.getElementById("login-error");
+  errBox.textContent = "";
 
   if (!email || !password) {
-    $("login-error").textContent = "이메일/비밀번호 입력";
+    errBox.textContent = "이메일/비밀번호 입력";
     return;
   }
 
-  const { data, error } = await window.supabaseClient.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password
   });
 
   if (error) {
-    $("login-error").textContent = error.message;
+    errBox.textContent = error.message;
     return;
   }
 
   const user = data.user;
 
-  const { data: profile, error: profileErr } = await window.supabaseClient
+  const { data: profile, error: profileErr } = await supabase
     .from("users")
     .select("role, name")
     .eq("id", user.id)
     .single();
 
   if (profileErr || !profile) {
-    $("login-error").textContent = "프로필 없음 (회원가입 필요)";
+    errBox.textContent = "프로필 없음 (회원가입 필요)";
     return;
   }
 
   if (profile.role === "admin") {
-    window.location.href = "/admin.html";
+    location.href = "/admin.html";
   } else {
-    window.location.href = "/worker.html";
+    location.href = "/worker.html";
   }
 });
 
 
-/* ---------------- SIGNUP ---------------- */
-$("btn-signup").addEventListener("click", async () => {
-  $("signup-error").textContent = "";
-  $("signup-success").textContent = "";
+/* =========================
+   SIGNUP
+========================= */
+document.getElementById("btn-signup").addEventListener("click", async () => {
+  const name = document.getElementById("signup-name").value.trim();
+  const email = document.getElementById("signup-email").value.trim();
+  const password = document.getElementById("signup-password").value;
+  const role = document.getElementById("signup-role").value;
 
-  const name = $("signup-name").value.trim();
-  const email = $("signup-email").value.trim();
-  const password = $("signup-password").value;
-  const role = $("signup-role").value;
+  const errBox = document.getElementById("signup-error");
+  const okBox = document.getElementById("signup-success");
+
+  errBox.textContent = "";
+  okBox.textContent = "";
 
   if (!name || !email || password.length < 6) {
-    $("signup-error").textContent = "입력값 확인";
+    errBox.textContent = "입력값 확인";
     return;
   }
 
-  const { data, error } = await window.supabaseClient.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password
   });
 
   if (error) {
-    $("signup-error").textContent = error.message;
+    errBox.textContent = error.message;
     return;
   }
 
   const user = data.user;
 
-  const { error: insertErr } = await window.supabaseClient
+  if (!user) {
+    errBox.textContent = "회원가입 실패";
+    return;
+  }
+
+  const { error: insertErr } = await supabase
     .from("users")
     .insert([
       {
@@ -139,11 +146,11 @@ $("btn-signup").addEventListener("click", async () => {
     ]);
 
   if (insertErr) {
-    $("signup-error").textContent = insertErr.message;
+    errBox.textContent = insertErr.message;
     return;
   }
 
-  $("signup-success").textContent = "회원가입 완료! 로그인하세요.";
+  okBox.textContent = "회원가입 완료! 로그인하세요.";
 });
 </script>
 
