@@ -10,8 +10,8 @@
   // =============================================
   // Supabase 설정 - 실제 값으로 교체 필요
   // =============================================
-  const SUPABASE_URL = 'https://uvaggfsqruebvysspjsz.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2YWdnZnNxcnVlYnZ5c3NwanN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNTUyNDYsImV4cCI6MjA5NTYzMTI0Nn0.MwSK6Pp6OshW2J-wGltRukmHAj6lzb9jxrgkb1aXuQw';
+  const SUPABASE_URL = 'https://sooedosvbqzdwpbqiras.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvb2Vkb3N2YnF6ZHdwYnFpcmFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNjIyOTEsImV4cCI6MjA5NTYzODI5MX0.1jcYK1zYOJX3xfVDwmpspLN1VW_XOEjZ8dFsLHQF8Mc';
 
   // 이미 초기화된 경우 재생성 방지
   if (!window.supabaseClient) {
