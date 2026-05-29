@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="근태관리" />
+  <title>출퇴근 — 근태관리</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<!-- 헤더 -->
+<div class="header">
+  <div class="header__logo">
+    <div class="header__logo-icon">⏱</div>
+    <div>
+      <div class="header__title">근태관리</div>
+      <div class="header__subtitle" id="today-date">오늘 날짜 로딩중...</div>
+    </div>
+  </div>
+  <div class="header__user">
+    <span class="header__user-name" id="user-name-display">...</span>
+    <button class="btn btn--ghost btn--sm" id="btn-logout">로그아웃</button>
+  </div>
+</div>
+
+<!-- 메인 콘텐츠 -->
+<div class="container">
+
+  <!-- 오늘 상태 배너 -->
+  <div class="status-banner" id="status-banner">
+    <div class="status-banner__icon">⏳</div>
+    <div class="status-banner__info">
+      <div class="status-banner__title" id="status-title">상태 로딩중...</div>
+      <div class="status-banner__detail" id="status-detail">잠시만 기다려주세요</div>
+    </div>
+    <div id="status-badge"></div>
+  </div>
+
+  <!-- 출퇴근 버튼 영역 -->
+  <div class="attendance-toggle">
+    <button class="attendance-btn attendance-btn--checkin" id="btn-checkin" disabled>
+      <div class="attendance-btn__icon">🟢</div>
+      <div class="attendance-btn__label">출근</div>
+      <div class="attendance-btn__status" id="checkin-status">-</div>
+    </button>
+    <button class="attendance-btn attendance-btn--checkout" id="btn-checkout" disabled>
+      <div class="attendance-btn__icon">🔴</div>
+      <div class="attendance-btn__label">퇴근</div>
+      <div class="attendance-btn__status" id="checkout-status">-</div>
+    </button>
+  </div>
+
+  <!-- 제출 폼 -->
+  <div class="card" id="submit-card">
+    <div class="section-header">
+      <div class="section-title" id="form-title">📝 출근 기록 작성</div>
+    </div>
+
+    <!-- 미션 텍스트 -->
+    <div class="form-group">
+      <label class="form-label" for="mission-text">오늘 미션 / 업무 내용</label>
+      <textarea
+        class="form-input form-input--textarea"
+        id="mission-text"
+        placeholder="오늘 진행할 업무나 미션을 입력하세요..."
+        rows="4"
+      ></textarea>
+    </div>
+
+    <!-- 사진 첨부 (iOS 카메라 캡처) -->
+    <div class="form-group">
+      <label class="form-label">현장 사진 <span class="text-danger">*</span> (필수)</label>
+      <!-- accept="image/*" capture="environment": iOS에서 카메라 즉시 열림 -->
+      <input
+        type="file"
+        id="photo-input"
+        accept="image/*"
+        capture="environment"
+      />
+      <div class="file-upload-area" id="file-upload-area">
+        <div class="file-upload-area__icon">📷</div>
+        <div class="file-upload-area__text">사진을 찍어 첨부하세요</div>
+        <div class="file-upload-area__hint">탭하면 카메라가 열립니다</div>
+      </div>
+      <img class="photo-preview" id="photo-preview" alt="미리보기" />
+    </div>
+
+    <!-- GPS 정보 -->
+    <div class="form-group">
+      <label class="form-label">위치 정보 (GPS)</label>
+      <div style="
+        background: var(--bg-input);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      ">
+        <span id="gps-icon">📍</span>
+        <span class="fs-13 text-secondary" id="gps-text">제출 시 자동으로 위치를 가져옵니다</span>
+      </div>
+    </div>
+
+    <div id="form-error" class="error-text hidden"></div>
+
+    <!-- 제출 버튼 -->
+    <button class="btn btn--primary btn--full mt-16" id="btn-submit" disabled>
+      <span id="submit-btn-text">출퇴근 유형을 선택하세요</span>
+    </button>
+  </div>
+
+  <!-- 오늘 기록 목록 -->
+  <div class="mt-20">
+    <div class="section-header">
+      <div class="section-title">📋 오늘 기록</div>
+    </div>
+    <div id="today-records">
+      <div class="empty-state">
+        <div class="empty-state__icon">📂</div>
+        <div class="empty-state__text">오늘 기록이 없습니다</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.container -->
+
+<!-- 로딩 오버레이 -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-overlay__spinner"></div>
+  <div class="loading-overlay__text" id="loading-text">처리 중...</div>
+</div>
+
+<!-- Supabase SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/js/app.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ─── 전역 상태 ────────────────────────────────
+  let currentUser = null;
+  let currentProfile = null;
+  let selectedType = null; // 'checkin' | 'checkout'
+  let todayRecords = { checkin: null, checkout: null };
+  let selectedPhotoFile = null;
+
+  // ─── DOM ───────────────────────────────────────
+  const btnCheckin      = document.getElementById('btn-checkin');
+  const btnCheckout     = document.getElementById('btn-checkout');
+  const btnSubmit       = document.getElementById('btn-submit');
+  const btnLogout       = document.getElementById('btn-logout');
+  const missionText     = document.getElementById('mission-text');
+  const photoInput      = document.getElementById('photo-input');
+  const fileUploadArea  = document.getElementById('file-upload-area');
+  const photoPreview    = document.getElementById('photo-preview');
+  const formError       = document.getElementById('form-error');
+  const loadingOverlay  = document.getElementById('loading-overlay');
+  const loadingText     = document.getElementById('loading-text');
+  const userNameDisplay = document.getElementById('user-name-display');
+  const todayDateEl     = document.getElementById('today-date');
+  const statusTitle     = document.getElementById('status-title');
+  const statusDetail    = document.getElementById('status-detail');
+  const statusBadge     = document.getElementById('status-badge');
+  const checkinStatus   = document.getElementById('checkin-status');
+  const checkoutStatus  = document.getElementById('checkout-status');
+  const formTitleEl     = document.getElementById('form-title');
+  const submitBtnText   = document.getElementById('submit-btn-text');
+  const gpsText         = document.getElementById('gps-text');
+  const gpsIcon         = document.getElementById('gps-icon');
+  const todayRecordsEl  = document.getElementById('today-records');
+
+  // ─── 유틸 ──────────────────────────────────────
+  function setLoading(visible, text) {
+    loadingText.textContent = text || '처리 중...';
+    loadingOverlay.classList.toggle('visible', visible);
+  }
+
+  function showError(msg) {
+    formError.innerHTML = '⚠ ' + msg;
+    formError.classList.remove('hidden');
+  }
+
+  function hideError() {
+    formError.classList.add('hidden');
+    formError.textContent = '';
+  }
+
+  function formatTime(isoString) {
+    if (!isoString) return '-';
+    return new Date(isoString).toLocaleTimeString('ko-KR', {
+      hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  // ─── 초기화 ───────────────────────────────────
+  (async function init() {
+    await new Promise(r => setTimeout(r, 150));
+
+    const result = await window.checkAuth('worker');
+    if (!result) return;
+
+    currentUser = result.user;
+    currentProfile = result.profile;
+
+    // 헤더 사용자 이름
+    userNameDisplay.textContent = currentProfile.name || currentProfile.email;
+
+    // 오늘 날짜 표시
+    const today = window.getTodayString();
+    todayDateEl.textContent = new Date().toLocaleDateString('ko-KR', {
+      year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'
+    });
+
+    await loadTodayStatus();
+    await loadTodayRecords();
+  })();
+
+  // ─── 오늘 출퇴근 상태 조회 ────────────────────
+  async function loadTodayStatus() {
+    const today = window.getTodayString();
+
+    try {
+      const { data, error } = await window.supabaseClient
+        .from('attendance')
+        .select('id, type, created_at')
+        .eq('user_id', currentUser.id)
+        .gte('created_at', today + 'T00:00:00')
+        .lte('created_at', today + 'T23:59:59')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      todayRecords.checkin  = data.find(r => r.type === 'checkin')  || null;
+      todayRecords.checkout = data.find(r => r.type === 'checkout') || null;
+
+      updateUI();
+
+    } catch (e) {
+      console.error('[loadTodayStatus]', e);
+      window.showToast('상태 로딩 실패: ' + e.message, 'error');
+    }
+
+    // 버튼 활성화
+    btnCheckin.disabled  = false;
+    btnCheckout.disabled = false;
+  }
+
+  // ─── UI 갱신 ──────────────────────────────────
+  function updateUI() {
+    const hasCheckin  = !!todayRecords.checkin;
+    const hasCheckout = !!todayRecords.checkout;
+
+    // 출근 버튼 상태
+    btnCheckin.classList.toggle('active', hasCheckin);
+    btnCheckin.disabled = hasCheckin; // 이미 출근했으면 비활성
+    checkinStatus.textContent = hasCheckin
+      ? formatTime(todayRecords.checkin.created_at)
+      : '미처리';
+
+    // 퇴근 버튼 상태
+    btnCheckout.classList.toggle('active', hasCheckout);
+    btnCheckout.disabled = !hasCheckin || hasCheckout; // 출근 전이거나 이미 퇴근이면 비활성
+    checkoutStatus.textContent = hasCheckout
+      ? formatTime(todayRecords.checkout.created_at)
+      : hasCheckin ? '대기중' : '-';
+
+    // 상태 배너
+    if (!hasCheckin && !hasCheckout) {
+      statusTitle.textContent  = '아직 출근하지 않았습니다';
+      statusDetail.textContent = '출근 버튼을 눌러 기록을 시작하세요';
+      statusBadge.innerHTML = '<span class="badge badge--neutral">대기</span>';
+    } else if (hasCheckin && !hasCheckout) {
+      statusTitle.textContent  = '✅ 출근 완료';
+      statusDetail.textContent = formatTime(todayRecords.checkin.created_at) + ' 에 출근하였습니다';
+      statusBadge.innerHTML = '<span class="badge badge--success">근무중</span>';
+    } else if (hasCheckin && hasCheckout) {
+      statusTitle.textContent  = '🏁 오늘 근무 완료';
+      statusDetail.textContent = `출근 ${formatTime(todayRecords.checkin.created_at)} / 퇴근 ${formatTime(todayRecords.checkout.created_at)}`;
+      statusBadge.innerHTML = '<span class="badge badge--warning">퇴근완료</span>';
+    }
+
+    // 선택된 타입에 따라 폼 업데이트
+    if (selectedType) {
+      updateFormTitle();
+    }
+  }
+
+  // ─── 출근 버튼 클릭 ──────────────────────────
+  btnCheckin.addEventListener('click', () => {
+    if (btnCheckin.disabled) return;
+    selectedType = 'checkin';
+    updateFormTitle();
+    resetForm();
+    scrollToForm();
+  });
+
+  // ─── 퇴근 버튼 클릭 ──────────────────────────
+  btnCheckout.addEventListener('click', () => {
+    if (btnCheckout.disabled) return;
+    selectedType = 'checkout';
+    updateFormTitle();
+    resetForm();
+    scrollToForm();
+  });
+
+  function updateFormTitle() {
+    if (selectedType === 'checkin') {
+      formTitleEl.textContent = '📝 출근 기록 작성';
+      submitBtnText.textContent = '📍 출근 기록 제출';
+      btnSubmit.className = 'btn btn--success btn--full mt-16';
+    } else if (selectedType === 'checkout') {
+      formTitleEl.textContent = '📝 퇴근 기록 작성';
+      submitBtnText.textContent = '🔴 퇴근 기록 제출';
+      btnSubmit.className = 'btn btn--danger btn--full mt-16';
+    }
+    btnSubmit.disabled = false;
+  }
+
+  function resetForm() {
+    missionText.value = '';
+    photoInput.value = '';
+    selectedPhotoFile = null;
+    photoPreview.classList.remove('visible');
+    fileUploadArea.classList.remove('has-file');
+    fileUploadArea.querySelector('.file-upload-area__text').textContent = '사진을 찍어 첨부하세요';
+    gpsText.textContent = '제출 시 자동으로 위치를 가져옵니다';
+    gpsIcon.textContent = '📍';
+    hideError();
+  }
+
+  function scrollToForm() {
+    const card = document.getElementById('submit-card');
+    setTimeout(() => {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }
+
+  // ─── 파일 첨부 영역 클릭 ─────────────────────
+  fileUploadArea.addEventListener('click', () => {
+    photoInput.click();
+  });
+
+  photoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      window.showToast('이미지 파일만 첨부 가능합니다.', 'error');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      window.showToast('10MB 이하의 이미지만 첨부 가능합니다.', 'error');
+      return;
+    }
+
+    selectedPhotoFile = file;
+
+    // 미리보기
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      photoPreview.src = ev.target.result;
+      photoPreview.classList.add('visible');
+    };
+    reader.readAsDataURL(file);
+
+    // 업로드 영역 상태 변경
+    fileUploadArea.classList.add('has-file');
+    fileUploadArea.querySelector('.file-upload-area__text').textContent = file.name;
+    fileUploadArea.querySelector('.file-upload-area__hint').textContent = `${(file.size / 1024).toFixed(0)} KB`;
+  });
+
+  // ─── 제출 ─────────────────────────────────────
+  btnSubmit.addEventListener('click', async () => {
+    if (!selectedType) {
+      window.showToast('출근 또는 퇴근을 먼저 선택하세요.', 'info');
+      return;
+    }
+
+    hideError();
+
+    // 유효성 검사
+    const mission = missionText.value.trim();
+    if (!mission) {
+      showError('업무 내용을 입력하세요.');
+      missionText.focus();
+      return;
+    }
+
+    if (!selectedPhotoFile) {
+      showError('현장 사진을 첨부해야 합니다.');
+      return;
+    }
+
+    // 중복 제출 방지: Supabase에서 오늘 기록 재확인
+    setLoading(true, '중복 확인 중...');
+    btnSubmit.disabled = true;
+
+    try {
+      const today = window.getTodayString();
+      const { count, error: countErr } = await window.supabaseClient
+        .from('attendance')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', currentUser.id)
+        .eq('type', selectedType)
+        .gte('created_at', today + 'T00:00:00')
+        .lte('created_at', today + 'T23:59:59');
+
+      if (countErr) throw countErr;
+
+      if (count > 0) {
+        const label = selectedType === 'checkin' ? '출근' : '퇴근';
+        showError(`오늘 이미 ${label} 기록이 존재합니다.`);
+        window.showToast(`오늘 ${label}은 이미 완료되었습니다.`, 'error');
+        await loadTodayStatus();
+        return;
+      }
+
+      // ─── GPS 위치 획득 (iOS Safari: 사용자 인터랙션 내부에서 호출) ─────
+      setLoading(true, 'GPS 위치 확인 중...');
+      let latitude = null;
+      let longitude = null;
+
+      try {
+        const position = await new Promise((resolve, reject) => {
+          if (!navigator.geolocation) {
+            reject(new Error('이 기기는 위치 정보를 지원하지 않습니다.'));
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          });
+        });
+
+        latitude  = position.coords.latitude;
+        longitude = position.coords.longitude;
+        gpsText.textContent = `위도 ${latitude.toFixed(5)}, 경도 ${longitude.toFixed(5)}`;
+        gpsIcon.textContent = '✅';
+
+      } catch (gpsErr) {
+        console.warn('[GPS]', gpsErr.code, gpsErr.message);
+        // 권한 거부 시 경고 후 계속 진행 여부 확인
+        if (gpsErr.code === 1) {
+          const proceed = confirm(
+            '위치 권한이 거부되었습니다.\n' +
+            'GPS 정보 없이 제출하시겠습니까?\n\n' +
+            '(iOS: 설정 > Safari > 위치 > 허용 으로 변경하세요)'
+          );
+          if (!proceed) {
+            setLoading(false);
+            btnSubmit.disabled = false;
+            return;
+          }
+        } else {
+          // 타임아웃 등 기타 오류는 경고만
+          window.showToast('GPS 위치를 가져오지 못했습니다. 위치 정보 없이 제출됩니다.', 'info');
+        }
+        gpsText.textContent = 'GPS 정보 없음';
+        gpsIcon.textContent = '⚠️';
+      }
+
+      // ─── 사진 Storage 업로드 ──────────────────
+      setLoading(true, '사진 업로드 중...');
+      const fileExt = selectedPhotoFile.name.split('.').pop() || 'jpg';
+      const fileName = `${currentUser.id}/${today}_${selectedType}_${Date.now()}.${fileExt}`;
+
+      const { error: uploadErr } = await window.supabaseClient.storage
+        .from('photos')
+        .upload(fileName, selectedPhotoFile, {
+          contentType: selectedPhotoFile.type,
+          upsert: false
+        });
+
+      if (uploadErr) throw new Error('사진 업로드 실패: ' + uploadErr.message);
+
+      // ─── Public URL 획득 ──────────────────────
+      const { data: urlData } = window.supabaseClient.storage
+        .from('photos')
+        .getPublicUrl(fileName);
+
+      const photoUrl = urlData?.publicUrl || null;
+
+      // ─── attendance 테이블 INSERT ─────────────
+      setLoading(true, '기록 저장 중...');
+      const { error: insertErr } = await window.supabaseClient
+        .from('attendance')
+        .insert({
+          user_id:      currentUser.id,
+          type:         selectedType,
+          mission_text: mission,
+          photo_url:    photoUrl,
+          latitude:     latitude,
+          longitude:    longitude
+        });
+
+      if (insertErr) throw new Error('기록 저장 실패: ' + insertErr.message);
+
+      // ─── 완료 처리 ────────────────────────────
+      const label = selectedType === 'checkin' ? '출근' : '퇴근';
+      window.showToast(`✓ ${label} 기록이 완료되었습니다!`, 'success');
+      selectedType = null;
+      resetForm();
+      formTitleEl.textContent = '📝 출퇴근 기록 작성';
+      submitBtnText.textContent = '출퇴근 유형을 선택하세요';
+      btnSubmit.className = 'btn btn--primary btn--full mt-16';
+      btnSubmit.disabled = true;
+
+      await loadTodayStatus();
+      await loadTodayRecords();
+
+    } catch (e) {
+      console.error('[submit]', e);
+      showError(e.message || '제출에 실패했습니다. 다시 시도하세요.');
+      window.showToast('오류: ' + e.message, 'error');
+    } finally {
+      setLoading(false);
+      btnSubmit.disabled = false;
+    }
+  });
+
+  // ─── 오늘 기록 로드 ──────────────────────────
+  async function loadTodayRecords() {
+    const today = window.getTodayString();
+    try {
+      const { data, error } = await window.supabaseClient
+        .from('attendance')
+        .select('id, type, mission_text, photo_url, latitude, longitude, created_at')
+        .eq('user_id', currentUser.id)
+        .gte('created_at', today + 'T00:00:00')
+        .lte('created_at', today + 'T23:59:59')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      renderTodayRecords(data);
+    } catch (e) {
+      console.error('[loadTodayRecords]', e);
+    }
+  }
+
+  function renderTodayRecords(records) {
+    if (!records || records.length === 0) {
+      todayRecordsEl.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state__icon">📂</div>
+          <div class="empty-state__text">오늘 기록이 없습니다</div>
+          <div class="empty-state__hint">출근 버튼을 눌러 시작하세요</div>
+        </div>
+      `;
+      return;
+    }
+
+    const html = records.map(r => {
+      const label = r.type === 'checkin' ? '출근' : '퇴근';
+      const badgeClass = r.type === 'checkin' ? 'badge--success' : 'badge--danger';
+      const mapLink = (r.latitude && r.longitude)
+        ? `<a class="log-item__map-link" href="https://www.google.com/maps?q=${r.latitude},${r.longitude}" target="_blank" rel="noopener">📍 지도보기</a>`
+        : '';
+      const photoHtml = r.photo_url
+        ? `<img class="log-item__photo" src="${r.photo_url}" alt="현장사진" onclick="window._openPhoto('${r.photo_url}')" />`
+        : '';
+
+      return `
+        <div class="log-item fade-in-up">
+          <div class="log-item__header">
+            <div class="log-item__user">
+              <div class="log-item__name">${label}</div>
+              <div class="log-item__email">${window.formatDateTime(r.created_at)}</div>
+            </div>
+            <span class="badge ${badgeClass}">${label}</span>
+          </div>
+          <div class="log-item__mission">${r.mission_text || '-'}</div>
+          <div class="log-item__footer">
+            ${photoHtml}
+            ${mapLink}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    todayRecordsEl.innerHTML = html;
+  }
+
+  // ─── 이미지 모달 ──────────────────────────────
+  window._openPhoto = function (url) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `<img src="${url}" alt="현장사진 전체보기" />`;
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+
+    overlay.addEventListener('click', () => {
+      overlay.classList.remove('visible');
+      setTimeout(() => overlay.remove(), 300);
+    });
+  };
+
+  // ─── 로그아웃 ─────────────────────────────────
+  btnLogout.addEventListener('click', async () => {
+    if (confirm('로그아웃 하시겠습니까?')) {
+      await window.signOut();
+    }
+  });
+
+  // ─── iOS 키보드 대응 ──────────────────────────
+  missionText.addEventListener('focus', () => {
+    // 약간의 딜레이 후 스크롤하여 input이 키보드에 가리지 않도록
+    setTimeout(() => {
+      missionText.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 350);
+  });
+
+})();
+</script>
+</body>
+</html>

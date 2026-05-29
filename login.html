@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="근태관리" />
+  <title>로그인 — 근태관리</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<div class="login-page">
+
+  <!-- 히어로 영역 -->
+  <div class="login-hero">
+    <div class="login-hero__logo">⏱</div>
+    <div class="login-hero__title">근태관리 시스템</div>
+    <div class="login-hero__subtitle">출퇴근 기록을 스마트하게</div>
+  </div>
+
+  <!-- 본문 -->
+  <div class="login-body">
+
+    <!-- 로그인 섹션 -->
+    <div class="login-section">
+      <div class="login-section__title">
+        <span>🔐</span> 로그인
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="login-email">이메일</label>
+        <input
+          class="form-input"
+          type="email"
+          id="login-email"
+          placeholder="name@example.com"
+          autocomplete="email"
+          inputmode="email"
+        />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="login-password">비밀번호</label>
+        <input
+          class="form-input"
+          type="password"
+          id="login-password"
+          placeholder="비밀번호를 입력하세요"
+          autocomplete="current-password"
+        />
+      </div>
+
+      <div id="login-error" class="error-text hidden"></div>
+
+      <button class="btn btn--primary btn--full mt-16" id="btn-login">
+        로그인
+      </button>
+    </div>
+
+    <!-- 구분선 -->
+    <div class="divider--text">테스트 계정 생성</div>
+
+    <!-- 회원가입 섹션 -->
+    <div class="login-section">
+      <div class="login-section__title">
+        <span>✏️</span> 회원가입
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="signup-name">이름</label>
+        <input
+          class="form-input"
+          type="text"
+          id="signup-name"
+          placeholder="홍길동"
+          autocomplete="name"
+        />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="signup-email">이메일</label>
+        <input
+          class="form-input"
+          type="email"
+          id="signup-email"
+          placeholder="name@example.com"
+          autocomplete="email"
+          inputmode="email"
+        />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="signup-password">비밀번호 (6자 이상)</label>
+        <input
+          class="form-input"
+          type="password"
+          id="signup-password"
+          placeholder="6자 이상 입력"
+          autocomplete="new-password"
+        />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">역할 선택</label>
+        <div class="role-select">
+          <div class="role-option">
+            <input type="radio" name="signup-role" id="role-worker" value="worker" checked />
+            <label class="role-option__label" for="role-worker">
+              <span class="role-option__icon">👷</span>
+              <span class="role-option__text">근무자</span>
+            </label>
+          </div>
+          <div class="role-option">
+            <input type="radio" name="signup-role" id="role-admin" value="admin" />
+            <label class="role-option__label" for="role-admin">
+              <span class="role-option__icon">🏢</span>
+              <span class="role-option__text">관리자</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div id="signup-error" class="error-text hidden"></div>
+      <div id="signup-success" class="fs-13 text-success hidden mt-8"></div>
+
+      <button class="btn btn--secondary btn--full mt-16" id="btn-signup">
+        회원가입
+      </button>
+    </div>
+
+  </div><!-- /.login-body -->
+</div><!-- /.login-page -->
+
+<!-- 로딩 오버레이 -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-overlay__spinner"></div>
+  <div class="loading-overlay__text" id="loading-text">처리 중...</div>
+</div>
+
+<!-- Supabase SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/js/app.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ─── DOM ───────────────────────────────────────
+  const btnLogin     = document.getElementById('btn-login');
+  const btnSignup    = document.getElementById('btn-signup');
+  const loginEmail   = document.getElementById('login-email');
+  const loginPw      = document.getElementById('login-password');
+  const loginError   = document.getElementById('login-error');
+  const signupName   = document.getElementById('signup-name');
+  const signupEmail  = document.getElementById('signup-email');
+  const signupPw     = document.getElementById('signup-password');
+  const signupError  = document.getElementById('signup-error');
+  const signupSuccess= document.getElementById('signup-success');
+  const loadingOverlay = document.getElementById('loading-overlay');
+  const loadingText  = document.getElementById('loading-text');
+
+  // ─── 유틸 ──────────────────────────────────────
+  function setLoading(visible, text) {
+    loadingText.textContent = text || '처리 중...';
+    loadingOverlay.classList.toggle('visible', visible);
+  }
+
+  function showError(el, msg) {
+    el.textContent = '⚠ ' + msg;
+    el.classList.remove('hidden');
+  }
+
+  function hideError(el) {
+    el.classList.add('hidden');
+    el.textContent = '';
+  }
+
+  // ─── iOS 키보드 대응 ──────────────────────────
+  let scrollY = 0;
+  const inputs = document.querySelectorAll('.form-input');
+  inputs.forEach(input => {
+    input.addEventListener('focus', () => {
+      scrollY = window.scrollY;
+    });
+    input.addEventListener('blur', () => {
+      // iOS 키보드 내려갔을 때 스크롤 위치 복원
+      window.scrollTo(0, scrollY);
+    });
+  });
+
+  // ─── 이미 로그인 상태이면 리다이렉트 ──────────
+  (async function checkAlreadyLoggedIn() {
+    // SDK 초기화 대기
+    await new Promise(r => setTimeout(r, 200));
+    if (!window.supabaseClient) return;
+
+    const result = await window.getSessionAndProfile();
+    if (result) {
+      const { profile } = result;
+      window.location.replace(profile.role === 'admin' ? '/admin.html' : '/worker.html');
+    }
+  })();
+
+  // ─── 로그인 ───────────────────────────────────
+  btnLogin.addEventListener('click', async () => {
+    hideError(loginError);
+    const email = loginEmail.value.trim();
+    const password = loginPw.value;
+
+    if (!email || !password) {
+      showError(loginError, '이메일과 비밀번호를 입력하세요.');
+      return;
+    }
+
+    setLoading(true, '로그인 중...');
+    btnLogin.disabled = true;
+
+    try {
+      const { data, error } = await window.supabaseClient.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      // users 테이블에서 role 조회
+      const { data: profile, error: profileErr } = await window.supabaseClient
+        .from('users')
+        .select('role, name')
+        .eq('id', data.user.id)
+        .single();
+
+      if (profileErr || !profile) {
+        throw new Error('사용자 프로필을 불러오지 못했습니다.');
+      }
+
+      window.location.replace(profile.role === 'admin' ? '/admin.html' : '/worker.html');
+
+    } catch (e) {
+      console.error('[login]', e);
+      const msg = e.message || '로그인에 실패했습니다.';
+      showError(loginError,
+        msg.includes('Invalid login') ? '이메일 또는 비밀번호가 올바르지 않습니다.' :
+        msg.includes('Email not confirmed') ? '이메일 인증이 필요합니다. 이메일을 확인하세요.' :
+        msg
+      );
+    } finally {
+      setLoading(false);
+      btnLogin.disabled = false;
+    }
+  });
+
+  // ─── 회원가입 ─────────────────────────────────
+  btnSignup.addEventListener('click', async () => {
+    hideError(signupError);
+    signupSuccess.classList.add('hidden');
+
+    const name     = signupName.value.trim();
+    const email    = signupEmail.value.trim();
+    const password = signupPw.value;
+    const roleEl   = document.querySelector('input[name="signup-role"]:checked');
+    const role     = roleEl ? roleEl.value : 'worker';
+
+    if (!name) { showError(signupError, '이름을 입력하세요.'); return; }
+    if (!email) { showError(signupError, '이메일을 입력하세요.'); return; }
+    if (password.length < 6) { showError(signupError, '비밀번호는 6자 이상이어야 합니다.'); return; }
+
+    setLoading(true, '계정 생성 중...');
+    btnSignup.disabled = true;
+
+    try {
+      // Supabase Auth 회원가입 (메타데이터에 name, role 포함)
+      const { data, error } = await window.supabaseClient.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: name,
+            role: role
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        // users 테이블에 직접 upsert (RLS 정책 필요)
+        // Auth 트리거가 없는 경우를 위한 수동 insert
+        const { error: insertErr } = await window.supabaseClient
+          .from('users')
+          .upsert({
+            id: data.user.id,
+            email: email,
+            name: name,
+            role: role
+          }, { onConflict: 'id' });
+
+        if (insertErr) {
+          console.warn('[signup] users insert 오류 (트리거가 있으면 무시):', insertErr.message);
+        }
+
+        signupSuccess.textContent = '✓ 계정이 생성되었습니다! 이메일 인증 후 로그인하세요.';
+        signupSuccess.classList.remove('hidden');
+        signupName.value = '';
+        signupEmail.value = '';
+        signupPw.value = '';
+      }
+
+    } catch (e) {
+      console.error('[signup]', e);
+      const msg = e.message || '회원가입에 실패했습니다.';
+      showError(signupError,
+        msg.includes('already registered') ? '이미 등록된 이메일입니다.' :
+        msg
+      );
+    } finally {
+      setLoading(false);
+      btnSignup.disabled = false;
+    }
+  });
+
+  // ─── Enter 키 지원 ────────────────────────────
+  loginPw.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnLogin.click();
+  });
+  signupPw.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnSignup.click();
+  });
+
+})();
+</script>
+</body>
+</html>

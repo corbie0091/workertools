@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="근태관리" />
+  <title>관리자 — 근태관리</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<!-- 헤더 -->
+<div class="header">
+  <div class="header__logo">
+    <div class="header__logo-icon">🏢</div>
+    <div>
+      <div class="header__title">관리자 대시보드</div>
+      <div class="header__subtitle" id="today-date">날짜 로딩중...</div>
+    </div>
+  </div>
+  <div class="header__user">
+    <span class="header__user-name" id="admin-name-display">...</span>
+    <button class="btn btn--ghost btn--sm" id="btn-logout">로그아웃</button>
+  </div>
+</div>
+
+<!-- 메인 콘텐츠 -->
+<div class="container">
+
+  <!-- 통계 카드 -->
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card">
+      <div class="stat-card__icon">✅</div>
+      <div class="stat-card__value" id="stat-checkin-count">-</div>
+      <div class="stat-card__label">오늘 출근자</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__icon">🏁</div>
+      <div class="stat-card__value" id="stat-checkout-count">-</div>
+      <div class="stat-card__label">오늘 퇴근자</div>
+    </div>
+    <div class="stat-card" style="grid-column: span 2;">
+      <div class="stat-card__icon">📅</div>
+      <div class="stat-card__value" id="stat-schedule-count">-</div>
+      <div class="stat-card__label">이번 달 스케줄</div>
+    </div>
+  </div>
+
+  <!-- 엑셀 관리 영역 -->
+  <div class="card mb-16">
+    <div class="section-title mb-16">📊 스케줄 관리 (Excel)</div>
+
+    <!-- 엑셀 업로드 -->
+    <div class="form-group">
+      <label class="form-label">스케줄 업로드 (.xlsx)</label>
+      <input type="file" id="schedule-file-input" accept=".xlsx,.xls" />
+      <div class="file-upload-area" id="schedule-upload-area">
+        <div class="file-upload-area__icon">📂</div>
+        <div class="file-upload-area__text">엑셀 파일을 선택하세요</div>
+        <div class="file-upload-area__hint">근무자명 / 근무지 / 근무일자 컬럼 필요</div>
+      </div>
+    </div>
+
+    <div id="upload-preview" class="hidden">
+      <div class="fs-13 text-secondary mb-8" id="upload-preview-count"></div>
+      <div id="upload-preview-table" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+    </div>
+    <div id="upload-error" class="error-text hidden"></div>
+
+    <button class="btn btn--primary btn--full mt-12 hidden" id="btn-upload-confirm">
+      <span id="upload-confirm-text">스케줄 저장</span>
+    </button>
+  </div>
+
+  <!-- 근태 조회 영역 -->
+  <div class="card">
+    <div class="section-title mb-16">📋 근태 기록 조회</div>
+
+    <div class="filter-bar">
+      <div class="form-group">
+        <label class="form-label">조회 날짜</label>
+        <input
+          class="form-input"
+          type="date"
+          id="filter-date"
+        />
+      </div>
+      <button class="btn btn--primary" id="btn-search" style="flex-shrink:0; height:48px; align-self:flex-end;">
+        조회
+      </button>
+    </div>
+
+    <!-- 엑셀 다운로드 버튼 -->
+    <button class="btn btn--secondary btn--full mb-16 hidden" id="btn-excel-download">
+      📥 Excel 다운로드
+    </button>
+
+    <!-- 결과 리스트 -->
+    <div id="attendance-list">
+      <div class="empty-state">
+        <div class="empty-state__icon">🔍</div>
+        <div class="empty-state__text">날짜를 선택하고 조회하세요</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.container -->
+
+<!-- 로딩 오버레이 -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-overlay__spinner"></div>
+  <div class="loading-overlay__text" id="loading-text">처리 중...</div>
+</div>
+
+<!-- 이미지 모달 -->
+<div class="modal-overlay" id="photo-modal">
+  <img src="" alt="현장사진" id="modal-photo-img" />
+</div>
+
+<!-- Supabase SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- SheetJS -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="/js/app.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ─── 상태 ─────────────────────────────────────
+  let currentAttendanceData = [];    // 현재 조회된 근태 데이터
+  let pendingScheduleData   = [];    // 업로드 대기중인 스케줄 데이터
+
+  // ─── DOM ───────────────────────────────────────
+  const btnLogout         = document.getElementById('btn-logout');
+  const adminNameDisplay  = document.getElementById('admin-name-display');
+  const todayDateEl       = document.getElementById('today-date');
+  const statCheckin       = document.getElementById('stat-checkin-count');
+  const statCheckout      = document.getElementById('stat-checkout-count');
+  const statSchedule      = document.getElementById('stat-schedule-count');
+  const filterDate        = document.getElementById('filter-date');
+  const btnSearch         = document.getElementById('btn-search');
+  const attendanceList    = document.getElementById('attendance-list');
+  const btnExcelDownload  = document.getElementById('btn-excel-download');
+  const scheduleFileInput = document.getElementById('schedule-file-input');
+  const scheduleUploadArea= document.getElementById('schedule-upload-area');
+  const uploadPreview     = document.getElementById('upload-preview');
+  const uploadPreviewCount= document.getElementById('upload-preview-count');
+  const uploadPreviewTable= document.getElementById('upload-preview-table');
+  const uploadError       = document.getElementById('upload-error');
+  const btnUploadConfirm  = document.getElementById('btn-upload-confirm');
+  const loadingOverlay    = document.getElementById('loading-overlay');
+  const loadingText       = document.getElementById('loading-text');
+  const photoModal        = document.getElementById('photo-modal');
+  const modalPhotoImg     = document.getElementById('modal-photo-img');
+
+  // ─── 유틸 ──────────────────────────────────────
+  function setLoading(visible, text) {
+    loadingText.textContent = text || '처리 중...';
+    loadingOverlay.classList.toggle('visible', visible);
+  }
+
+  function showUploadError(msg) {
+    uploadError.textContent = '⚠ ' + msg;
+    uploadError.classList.remove('hidden');
+  }
+
+  function hideUploadError() {
+    uploadError.classList.add('hidden');
+    uploadError.textContent = '';
+  }
+
+  // ─── 초기화 ───────────────────────────────────
+  (async function init() {
+    await new Promise(r => setTimeout(r, 150));
+
+    const result = await window.checkAuth('admin');
+    if (!result) return;
+
+    adminNameDisplay.textContent = result.profile.name || result.profile.email;
+
+    const today = window.getTodayString();
+    todayDateEl.textContent = new Date().toLocaleDateString('ko-KR', {
+      year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'
+    });
+
+    // 날짜 기본값 = 오늘
+    filterDate.value = today;
+
+    await loadTodayStats();
+    await searchAttendance(today); // 오늘 기록 자동 조회
+  })();
+
+  // ─── 오늘 통계 로드 ───────────────────────────
+  async function loadTodayStats() {
+    const today = window.getTodayString();
+
+    try {
+      // 출근 수
+      const { count: checkinCount } = await window.supabaseClient
+        .from('attendance')
+        .select('id', { count: 'exact', head: true })
+        .eq('type', 'checkin')
+        .gte('created_at', today + 'T00:00:00')
+        .lte('created_at', today + 'T23:59:59');
+
+      // 퇴근 수
+      const { count: checkoutCount } = await window.supabaseClient
+        .from('attendance')
+        .select('id', { count: 'exact', head: true })
+        .eq('type', 'checkout')
+        .gte('created_at', today + 'T00:00:00')
+        .lte('created_at', today + 'T23:59:59');
+
+      // 이번 달 스케줄 수
+      const thisMonth = today.substring(0, 7); // YYYY-MM
+      const { count: scheduleCount } = await window.supabaseClient
+        .from('schedules')
+        .select('id', { count: 'exact', head: true })
+        .like('work_date', thisMonth + '%');
+
+      statCheckin.textContent  = checkinCount  ?? 0;
+      statCheckout.textContent = checkoutCount ?? 0;
+      statSchedule.textContent = scheduleCount ?? 0;
+
+    } catch (e) {
+      console.error('[loadTodayStats]', e);
+    }
+  }
+
+  // ─── 근태 기록 조회 ───────────────────────────
+  btnSearch.addEventListener('click', () => {
+    const date = filterDate.value;
+    if (!date) {
+      window.showToast('날짜를 선택하세요.', 'info');
+      return;
+    }
+    searchAttendance(date);
+  });
+
+  async function searchAttendance(date) {
+    setLoading(true, '근태 기록 조회 중...');
+    attendanceList.innerHTML = '';
+    btnExcelDownload.classList.add('hidden');
+
+    try {
+      // attendance 테이블 + users 조인 (Supabase PostgREST 문법)
+      const { data, error } = await window.supabaseClient
+        .from('attendance')
+        .select(`
+          id,
+          type,
+          mission_text,
+          photo_url,
+          latitude,
+          longitude,
+          created_at,
+          users (
+            id,
+            name,
+            email
+          )
+        `)
+        .gte('created_at', date + 'T00:00:00')
+        .lte('created_at', date + 'T23:59:59')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      currentAttendanceData = data || [];
+      renderAttendanceList(currentAttendanceData, date);
+
+      if (currentAttendanceData.length > 0) {
+        btnExcelDownload.classList.remove('hidden');
+      }
+
+    } catch (e) {
+      console.error('[searchAttendance]', e);
+      attendanceList.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state__icon">❌</div>
+          <div class="empty-state__text">조회 중 오류가 발생했습니다</div>
+          <div class="empty-state__hint">${e.message}</div>
+        </div>
+      `;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderAttendanceList(records, date) {
+    if (!records || records.length === 0) {
+      attendanceList.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state__icon">📭</div>
+          <div class="empty-state__text">${date} 기록이 없습니다</div>
+        </div>
+      `;
+      return;
+    }
+
+    const html = records.map(r => {
+      const user = r.users || {};
+      const label = r.type === 'checkin' ? '출근' : '퇴근';
+      const badgeClass = r.type === 'checkin' ? 'badge--success' : 'badge--danger';
+      const mapLink = (r.latitude && r.longitude)
+        ? `<a class="log-item__map-link" href="https://www.google.com/maps?q=${r.latitude},${r.longitude}" target="_blank" rel="noopener">📍 구글지도</a>`
+        : '';
+      const photoHtml = r.photo_url
+        ? `<img class="log-item__photo" src="${r.photo_url}" alt="현장사진" data-url="${r.photo_url}" />`
+        : '<span class="badge badge--neutral">사진없음</span>';
+
+      return `
+        <div class="log-item fade-in-up">
+          <div class="log-item__header">
+            <div class="log-item__user">
+              <div class="log-item__name">${user.name || '(이름없음)'}</div>
+              <div class="log-item__email">${user.email || '-'}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+              <span class="badge ${badgeClass}">${label}</span>
+              <span class="log-item__time">${window.formatDateTime(r.created_at)}</span>
+            </div>
+          </div>
+          <div class="log-item__mission">${r.mission_text || '(미션 없음)'}</div>
+          <div class="log-item__footer">
+            ${photoHtml}
+            ${mapLink}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    attendanceList.innerHTML = html;
+
+    // 사진 클릭 모달
+    attendanceList.querySelectorAll('.log-item__photo').forEach(img => {
+      img.addEventListener('click', () => {
+        const url = img.getAttribute('data-url');
+        openPhotoModal(url);
+      });
+    });
+  }
+
+  // ─── 이미지 모달 ──────────────────────────────
+  function openPhotoModal(url) {
+    modalPhotoImg.src = url;
+    requestAnimationFrame(() => photoModal.classList.add('visible'));
+  }
+
+  photoModal.addEventListener('click', () => {
+    photoModal.classList.remove('visible');
+    setTimeout(() => { modalPhotoImg.src = ''; }, 300);
+  });
+
+  // ─── 엑셀 다운로드 ────────────────────────────
+  btnExcelDownload.addEventListener('click', () => {
+    if (!currentAttendanceData || currentAttendanceData.length === 0) {
+      window.showToast('다운로드할 데이터가 없습니다.', 'info');
+      return;
+    }
+
+    try {
+      const rows = currentAttendanceData.map(r => ({
+        '이름':    r.users?.name  || '',
+        '이메일':  r.users?.email || '',
+        '유형':    r.type === 'checkin' ? '출근' : '퇴근',
+        '미션':    r.mission_text || '',
+        '기록일시': window.formatDateTime(r.created_at),
+        '위도':    r.latitude  || '',
+        '경도':    r.longitude || '',
+        '사진URL': r.photo_url || ''
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '근태기록');
+
+      // 열 너비 자동 조정
+      const colWidths = Object.keys(rows[0]).map(k => ({ wch: Math.max(k.length, 14) }));
+      ws['!cols'] = colWidths;
+
+      const fileName = `근태기록_${filterDate.value}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+      window.showToast('엑셀 파일이 다운로드 되었습니다.', 'success');
+
+    } catch (e) {
+      console.error('[excelDownload]', e);
+      window.showToast('엑셀 다운로드 실패: ' + e.message, 'error');
+    }
+  });
+
+  // ─── 스케줄 엑셀 업로드 영역 클릭 ──────────
+  scheduleUploadArea.addEventListener('click', () => {
+    scheduleFileInput.click();
+  });
+
+  scheduleFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    hideUploadError();
+    pendingScheduleData = [];
+    uploadPreview.classList.add('hidden');
+    btnUploadConfirm.classList.add('hidden');
+
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+      showUploadError('.xlsx 또는 .xls 파일만 업로드 가능합니다.');
+      return;
+    }
+
+    // SheetJS로 파일 파싱 (원본 파일을 서버에 저장하지 않음)
+    const reader = new FileReader();
+    reader.onload = function (ev) {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+
+        // JSON으로 변환 (첫 행 = 헤더)
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+        if (!jsonData || jsonData.length === 0) {
+          showUploadError('엑셀 파일에 데이터가 없습니다.');
+          return;
+        }
+
+        // 필수 컬럼 체크
+        const firstRow = jsonData[0];
+        const requiredCols = ['근무자명', '근무지', '근무일자'];
+        const missingCols = requiredCols.filter(col => !(col in firstRow));
+
+        if (missingCols.length > 0) {
+          showUploadError(`필수 컬럼이 없습니다: ${missingCols.join(', ')}\n(컬럼명: 근무자명, 근무지, 근무일자)`);
+          return;
+        }
+
+        // 유효한 행만 필터링
+        pendingScheduleData = jsonData
+          .filter(row => row['근무자명'] && row['근무지'] && row['근무일자'])
+          .map(row => ({
+            worker_name: String(row['근무자명']).trim(),
+            location:    String(row['근무지']).trim(),
+            work_date:   String(row['근무일자']).trim()
+          }));
+
+        if (pendingScheduleData.length === 0) {
+          showUploadError('유효한 데이터 행이 없습니다. 빈 행을 확인하세요.');
+          return;
+        }
+
+        // 미리보기 렌더링
+        uploadPreviewCount.textContent = `총 ${pendingScheduleData.length}건 감지됨`;
+        const previewRows = pendingScheduleData.slice(0, 5);
+        uploadPreviewTable.innerHTML = `
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr>
+                <th style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left;color:#9898b8;">근무자명</th>
+                <th style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left;color:#9898b8;">근무지</th>
+                <th style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left;color:#9898b8;">근무일자</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${previewRows.map(r => `
+                <tr>
+                  <td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.05);color:#f0f0f8;">${r.worker_name}</td>
+                  <td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.05);color:#f0f0f8;">${r.location}</td>
+                  <td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.05);color:#f0f0f8;">${r.work_date}</td>
+                </tr>
+              `).join('')}
+              ${pendingScheduleData.length > 5 ? `
+                <tr>
+                  <td colspan="3" style="padding:6px 8px;color:#55556a;font-style:italic;">... 외 ${pendingScheduleData.length - 5}건</td>
+                </tr>
+              ` : ''}
+            </tbody>
+          </table>
+        `;
+
+        uploadPreview.classList.remove('hidden');
+        btnUploadConfirm.classList.remove('hidden');
+        document.getElementById('upload-confirm-text').textContent = `${pendingScheduleData.length}건 저장`;
+
+        scheduleUploadArea.classList.add('has-file');
+        scheduleUploadArea.querySelector('.file-upload-area__text').textContent = file.name;
+
+      } catch (parseErr) {
+        console.error('[xlsxParse]', parseErr);
+        showUploadError('파일 파싱 오류: ' + parseErr.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  // ─── 스케줄 저장 (schedules 테이블 INSERT) ──
+  btnUploadConfirm.addEventListener('click', async () => {
+    if (!pendingScheduleData || pendingScheduleData.length === 0) {
+      window.showToast('저장할 데이터가 없습니다.', 'info');
+      return;
+    }
+
+    setLoading(true, `${pendingScheduleData.length}건 저장 중...`);
+    btnUploadConfirm.disabled = true;
+
+    try {
+      // 배치 insert (Supabase는 배열 insert 지원)
+      const { error } = await window.supabaseClient
+        .from('schedules')
+        .insert(pendingScheduleData);
+
+      if (error) throw error;
+
+      window.showToast(`✓ ${pendingScheduleData.length}건의 스케줄이 저장되었습니다.`, 'success');
+
+      // 초기화
+      pendingScheduleData = [];
+      scheduleFileInput.value = '';
+      uploadPreview.classList.add('hidden');
+      btnUploadConfirm.classList.add('hidden');
+      scheduleUploadArea.classList.remove('has-file');
+      scheduleUploadArea.querySelector('.file-upload-area__text').textContent = '엑셀 파일을 선택하세요';
+
+      // 통계 새로고침
+      await loadTodayStats();
+
+    } catch (e) {
+      console.error('[scheduleInsert]', e);
+      window.showToast('저장 실패: ' + e.message, 'error');
+    } finally {
+      setLoading(false);
+      btnUploadConfirm.disabled = false;
+    }
+  });
+
+  // ─── 로그아웃 ─────────────────────────────────
+  btnLogout.addEventListener('click', async () => {
+    if (confirm('로그아웃 하시겠습니까?')) {
+      await window.signOut();
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
